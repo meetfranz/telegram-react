@@ -5,10 +5,11 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { EventEmitter } from 'events';
+import EventEmitter from './EventEmitter';
 import ActionScheduler from '../Utils/ActionScheduler';
 import { closeChat } from '../Actions/Client';
 import { subscribeNotifications } from '../registerServiceWorker';
+import { PAGE_WIDTH_SMALL } from '../Constants';
 import TdLibController from '../Controllers/TdLibController';
 
 class ApplicationStore extends EventEmitter {
@@ -19,24 +20,39 @@ class ApplicationStore extends EventEmitter {
 
         this.addTdLibListener();
         this.addStatistics();
-        this.setMaxListeners(Infinity);
+
+        this.isSmallWidth = window.innerWidth < PAGE_WIDTH_SMALL;
+        window.addEventListener('resize', this.onWindowResize);
     }
+
+    onWindowResize = () => {
+        const { isSmallWidth } = this;
+
+        const nextIsSmallWidth = window.innerWidth < PAGE_WIDTH_SMALL;
+        if (nextIsSmallWidth !== isSmallWidth) {
+            this.isSmallWidth = nextIsSmallWidth;
+            TdLibController.clientUpdate({
+                '@type': 'clientUpdatePageWidth',
+                isSmallWidth: nextIsSmallWidth
+            })
+        }
+    };
 
     reset = () => {
         this.dialogsReady = false;
+        this.cacheLoaded = false;
         this.setPhoneNumberRequest = null;
         this.chatId = 0;
         this.dialogChatId = 0;
         this.messageId = null;
         this.statistics = new Map();
-        this.scopeNotificationSettings = new Map();
         this.authorizationState = null;
         this.defaultPhone = null;
         this.connectionState = null;
         this.isChatDetailsVisible = false;
         this.mediaViewerContent = null;
         this.profileMediaViewerContent = null;
-        this.dragging = false;
+        this.dragParams = null;
         this.actionScheduler = new ActionScheduler(this.handleScheduledAction, this.handleCancelScheduledAction);
     };
 
@@ -100,7 +116,10 @@ class ApplicationStore extends EventEmitter {
 
                         if (!this.loggingOut) {
                             document.title += ': Zzz…';
-                            this.emit('clientUpdateAppInactive');
+
+                            TdLibController.clientUpdate({
+                                '@type': 'clientUpdateAppInactive'
+                            });
                         } else {
                             TdLibController.init();
                         }
@@ -122,12 +141,6 @@ class ApplicationStore extends EventEmitter {
             }
             case 'updateConnectionState': {
                 this.connectionState = update.state;
-
-                this.emit(update['@type'], update);
-                break;
-            }
-            case 'updateScopeNotificationSettings': {
-                this.setNotificationSettings(update.scope['@type'], update.notification_settings);
 
                 this.emit(update['@type'], update);
                 break;
@@ -169,6 +182,15 @@ class ApplicationStore extends EventEmitter {
 
     onClientUpdate = update => {
         switch (update['@type']) {
+            case 'clientUpdateAppInactive': {
+                this.emit('clientUpdateAppInactive');
+                break;
+            }
+            case 'clientUpdateCacheLoaded': {
+                this.cacheLoaded = true;
+                this.emit('clientUpdateCacheLoaded');
+                break;
+            }
             case 'clientUpdateChatId': {
                 const extendedUpdate = {
                     '@type': 'clientUpdateChatId',
@@ -184,13 +206,28 @@ class ApplicationStore extends EventEmitter {
                 this.emit('clientUpdateChatId', extendedUpdate);
                 break;
             }
-            case 'clientUpdateDatabaseExists': {
-                this.emit('clientUpdateDatabaseExists', update);
+            case 'clientUpdateTdLibDatabaseExists': {
+                this.emit('clientUpdateTdLibDatabaseExists', update);
+                break;
+            }
+            case 'clientUpdateDeleteMessages': {
+                this.emit('clientUpdateDeleteMessages', update);
                 break;
             }
             case 'clientUpdateDialogsReady': {
                 this.dialogsReady = true;
                 this.emit('clientUpdateDialogsReady', update);
+                break;
+            }
+            case 'clientUpdateDragging': {
+                const { dragging, files } = update;
+
+                this.dragParams = dragging ? { dragging, files } : null;
+                this.emit('clientUpdateDragging', update);
+                break;
+            }
+            case 'clientUpdateEditMessage': {
+                this.emit('clientUpdateEditMessage', update);
                 break;
             }
             case 'clientUpdateMediaViewerContent': {
@@ -200,11 +237,23 @@ class ApplicationStore extends EventEmitter {
                 this.emit('clientUpdateMediaViewerContent', update);
                 break;
             }
+            case 'clientUpdateNewContentAvailable': {
+                this.emit('clientUpdateNewContentAvailable', update);
+                break;
+            }
+            case 'clientUpdatePageWidth': {
+                this.emit('clientUpdatePageWidth', update);
+                break;
+            }
             case 'clientUpdateProfileMediaViewerContent': {
                 const { content } = update;
                 this.profileMediaViewerContent = content;
 
                 this.emit('clientUpdateProfileMediaViewerContent', update);
+                break;
+            }
+            case 'clientUpdateSearchChat': {
+                this.emit('clientUpdateSearchChat', update);
                 break;
             }
             case 'clientUpdateSetPhone': {
@@ -247,6 +296,10 @@ class ApplicationStore extends EventEmitter {
                 break;
             }
             case 'clientUpdateFocusWindow': {
+                if (!this.authorizationState) {
+                    break;
+                }
+
                 TdLibController.send({
                     '@type': 'setOption',
                     name: 'online',
@@ -302,17 +355,17 @@ class ApplicationStore extends EventEmitter {
     };
 
     addTdLibListener = () => {
-        TdLibController.addListener('update', this.onUpdate);
-        TdLibController.addListener('clientUpdate', this.onClientUpdate);
+        TdLibController.on('update', this.onUpdate);
+        TdLibController.on('clientUpdate', this.onClientUpdate);
     };
 
     removeTdLibListener = () => {
-        TdLibController.removeListener('update', this.onUpdate);
-        TdLibController.removeListener('clientUpdate', this.onClientUpdate);
+        TdLibController.off('update', this.onUpdate);
+        TdLibController.off('clientUpdate', this.onClientUpdate);
     };
 
     addStatistics = () => {
-        TdLibController.addListener('update', this.onUpdateStatistics);
+        TdLibController.on('update', this.onUpdateStatistics);
     };
 
     setChatId = (chatId, messageId = null) => {
@@ -337,10 +390,6 @@ class ApplicationStore extends EventEmitter {
         return this.messageId;
     }
 
-    searchChat(chatId) {
-        this.emit('clientUpdateSearchChat', { chatId: chatId });
-    }
-
     changeChatDetailsVisibility(visibility) {
         this.isChatDetailsVisible = visibility;
         this.emit('clientUpdateChatDetailsVisibility', visibility);
@@ -354,23 +403,6 @@ class ApplicationStore extends EventEmitter {
         return this.authorizationState;
     }
 
-    getNotificationSettings(scope) {
-        return this.scopeNotificationSettings.get(scope);
-    }
-
-    setNotificationSettings(scope, notificationSettings) {
-        return this.scopeNotificationSettings.set(scope, notificationSettings);
-    }
-
-    getDragging = () => {
-        return this.dragging;
-    };
-
-    setDragging = value => {
-        this.dragging = value;
-        this.emit('clientUpdateDragging', value);
-    };
-
     assign(source1, source2) {
         Object.assign(source1, source2);
         //this.set(Object.assign({}, source1, source2));
@@ -378,5 +410,5 @@ class ApplicationStore extends EventEmitter {
 }
 
 const store = new ApplicationStore();
-window.application = store;
+window.app = store;
 export default store;

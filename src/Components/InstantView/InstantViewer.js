@@ -7,52 +7,35 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import classNames from 'classnames';
-import { compose } from 'recompose';
-import withStyles from '@material-ui/core/styles/withStyles';
 import { withTranslation } from 'react-i18next';
-import CloseIcon from '@material-ui/icons/Close';
-import ChevronLeftIcon from '@material-ui/icons/ChevronLeft';
-import ExpandLessIcon from '@material-ui/icons/ExpandLess';
+import KeyboardManager, { KeyboardHandler } from '../Additional/KeyboardManager';
+import CloseIcon from '../../Assets/Icons/Close';
 import Article from './Article';
 import InstantViewMediaViewer from '../Viewer/InstantViewMediaViewer';
 import IVContext from './IVContext';
 import MediaViewerButton from '../Viewer/MediaViewerButton';
+import NavigateBeforeIcon from '../../Assets/Icons/Left';
+import { itemsInView, throttle } from '../../Utils/Common';
+import { getInnerBlocks } from '../../Utils/InstantView';
 import { openInstantView } from '../../Actions/InstantView';
 import { setInstantViewContent, setInstantViewViewerContent } from '../../Actions/Client';
+import { scrollTop } from '../../Utils/DOM';
 import { IV_PHOTO_SIZE } from '../../Constants';
 import InstantViewStore from '../../Stores/InstantViewStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './InstantViewer.css';
 
-const styles = theme => ({
-    instantViewer: {
-        background: theme.palette.type === 'dark' ? theme.palette.background.default : '#FFFFFF',
-        color: theme.palette.text.primary
-    },
-    leftButton: {
-        color: theme.palette.text.secondary,
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        bottom: 0
-    },
-    closeButton: {
-        color: theme.palette.text.secondary,
-        position: 'fixed',
-        top: 0,
-        right: 0
-    }
-});
-
 class InstantViewer extends React.Component {
     constructor(props) {
         super(props);
 
+        this.keyboardHandler = new KeyboardHandler(this.onKeyDown);
         this.articleRef = React.createRef();
         this.instantViewerRef = React.createRef();
 
         this.state = {};
+
+        this.updateItemsInView = throttle(this.updateItemsInView, 500);
     }
 
     static getDerivedStateFromProps(props, state) {
@@ -62,7 +45,8 @@ class InstantViewer extends React.Component {
                 hasPrev: InstantViewStore.hasPrev(),
                 hasScroll: false,
                 media: null,
-                text: null
+                caption: null,
+                url: null
             };
         }
 
@@ -71,7 +55,7 @@ class InstantViewer extends React.Component {
 
     shouldComponentUpdate(nextProps, nextState, nextContext) {
         const { instantView } = this.props;
-        const { hasScroll, hasPrev, media, text } = this.state;
+        const { hasScroll, hasPrev, media, caption, url } = this.state;
 
         if (instantView !== nextProps.instantView) {
             return true;
@@ -89,7 +73,11 @@ class InstantViewer extends React.Component {
             return true;
         }
 
-        if (text !== nextState.text) {
+        if (caption !== nextState.caption) {
+            return true;
+        }
+
+        if (url !== nextState.url) {
             return true;
         }
 
@@ -97,32 +85,33 @@ class InstantViewer extends React.Component {
     }
 
     componentDidMount() {
-        document.addEventListener('keydown', this.onKeyDown, false);
+        this.mounted = true;
+        this.handleScroll();
+
+        KeyboardManager.add(this.keyboardHandler);
         InstantViewStore.on('clientUpdateInstantViewUrl', this.onClientUpdateInstantViewUrl);
         InstantViewStore.on('clientUpdateInstantViewViewerContent', this.onClientUpdateInstantViewViewerContent);
     }
 
     componentWillUnmount() {
-        document.removeEventListener('keydown', this.onKeyDown, false);
-        InstantViewStore.removeListener('clientUpdateInstantViewUrl', this.onClientUpdateInstantViewUrl);
-        InstantViewStore.removeListener(
-            'clientUpdateInstantViewViewerContent',
-            this.onClientUpdateInstantViewViewerContent
-        );
+        this.mounted = false;
+        KeyboardManager.remove(this.keyboardHandler);
+        InstantViewStore.off('clientUpdateInstantViewUrl', this.onClientUpdateInstantViewUrl);
+        InstantViewStore.off('clientUpdateInstantViewViewerContent', this.onClientUpdateInstantViewViewerContent);
     }
 
     onClientUpdateInstantViewViewerContent = update => {
         const { content } = update;
         if (!content) {
-            this.setState({ media: null, text: null });
+            this.setState({ media: null, caption: null, url: null });
             return;
         }
 
-        const { media, text, instantView } = content;
+        const { media, caption, url, instantView } = content;
 
         if (this.props.instantView !== instantView) return;
 
-        this.setState({ media, text });
+        this.setState({ media, caption, url });
     };
 
     onClientUpdateInstantViewUrl = async update => {
@@ -186,13 +175,7 @@ class InstantViewer extends React.Component {
 
         switch (behavior) {
             case 'smooth': {
-                element.scrollTop = Math.min(element.scrollTop, 100);
-                setTimeout(() => {
-                    element.scrollTo({
-                        top: 0,
-                        behavior: 'smooth'
-                    });
-                }, 50);
+                scrollTop(element);
                 break;
             }
             default: {
@@ -230,6 +213,8 @@ class InstantViewer extends React.Component {
                     this.scrollTop('smooth');
                 }
             }
+
+            this.handleScroll();
         }
     }
 
@@ -272,46 +257,69 @@ class InstantViewer extends React.Component {
         this.setState({
             hasScroll: element.scrollTop > 50
         });
+
+        this.updateItemsInView();
     };
+
+    updateItemsInView() {
+        if (!this.mounted) return;
+
+        const { instantView } = this.props;
+        if (!instantView) return;
+
+        const { page_blocks } = instantView;
+
+        const blocks = new Map();
+        const items = itemsInView(this.instantViewerRef, this.articleRef);
+
+        for (let i = 0; i < items.length; i++) {
+            const block = page_blocks[items[i]];
+            blocks.set(block, block);
+
+            const innerBlocks = getInnerBlocks(block);
+            innerBlocks.forEach(x => blocks.set(x, x));
+        }
+
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateBlocksInView',
+            blocks
+        });
+    }
 
     render() {
         const { classes, instantView } = this.props;
-        const { hasPrev, hasScroll, media, text } = this.state;
+        const { hasPrev, hasScroll, media, caption, url } = this.state;
         if (!instantView) return null;
 
         return (
-            <>
-                <div
-                    ref={this.instantViewerRef}
-                    className={classNames('instant-viewer', classes.instantViewer)}
-                    onScroll={this.handleScroll}>
+            <IVContext.Provider value={instantView}>
+                <div ref={this.instantViewerRef} className='instant-viewer' onScroll={this.handleScroll}>
                     <div className='instant-viewer-left-column' onClick={this.handleBack}>
                         <MediaViewerButton
-                            className={classes.leftButton}
+                            className='instant-viewer-left-button'
                             style={{ alignItems: 'flex-start' }}
                             onClick={this.handleBack}>
-                            {hasScroll ? (
-                                <ExpandLessIcon className='media-viewer-button-icon' fontSize='large' />
-                            ) : (
-                                <ChevronLeftIcon className='media-viewer-button-icon' fontSize='large' />
-                            )}
+                            <NavigateBeforeIcon
+                                style={{
+                                    transition: 'transform 0.25s ease-out',
+                                    transform: hasScroll ? 'rotate(90deg)' : 'rotate(0deg)'
+                                }}
+                            />
                         </MediaViewerButton>
                     </div>
                     <div className='instant-viewer-content-column'>
                         <div>
-                            <IVContext.Provider value={instantView}>
-                                <Article ref={this.articleRef} />
-                            </IVContext.Provider>
+                            <Article ref={this.articleRef} />
                         </div>
                     </div>
                     <div className='instant-viewer-right-column'>
-                        <MediaViewerButton className={classes.closeButton} onClick={this.handleClose}>
-                            <CloseIcon className='media-viewer-button-icon' fontSize='large' />
+                        <MediaViewerButton className='instant-viewer-right-button' onClick={this.handleClose}>
+                            <CloseIcon />
                         </MediaViewerButton>
                     </div>
                 </div>
-                {media && <InstantViewMediaViewer media={media} size={IV_PHOTO_SIZE} text={text} />}
-            </>
+                {media && <InstantViewMediaViewer media={media} size={IV_PHOTO_SIZE} caption={caption} url={url} />}
+            </IVContext.Provider>
         );
     }
 }
@@ -320,9 +328,4 @@ InstantViewer.propTypes = {
     instantView: PropTypes.object.isRequired
 };
 
-const enhance = compose(
-    withStyles(styles),
-    withTranslation()
-);
-
-export default enhance(InstantViewer);
+export default withTranslation()(InstantViewer);

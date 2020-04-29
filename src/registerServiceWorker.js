@@ -5,10 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { arrayBufferToBase64 } from './Utils/Common';
-import Cookies from 'universal-cookie';
+import { arrayBufferToBase64, isAuthorizationReady } from './Utils/Common';
 import { OPTIMIZATIONS_FIRST_START } from './Constants';
 import ApplicationStore from './Stores/ApplicationStore';
+import NotificationStore from './Stores/NotificationStore';
 import TdLibController from './Controllers/TdLibController';
 
 // In production, we register a service worker to serve assets from local cache.
@@ -35,8 +35,7 @@ export default async function register() {
     console.log('[SW] Register');
 
     if (OPTIMIZATIONS_FIRST_START) {
-        const cookies = new Cookies();
-        cookies.set('register', true);
+        localStorage.setItem('register', 'true');
     }
 
     if ('serviceWorker' in navigator) {
@@ -79,7 +78,7 @@ async function registerValidSW(swUrl) {
                         // available; please refresh." message in your web app.
                         console.log('[SW] New content is available; please refresh.');
 
-                        ApplicationStore.emit('clientUpdateNewContentAvailable');
+                        TdLibController.clientUpdate({ '@type': 'clientUpdateNewContentAvailable' });
                     } else {
                         // At this point, everything has been precached.
                         // It's the perfect time to display a
@@ -110,21 +109,25 @@ export async function subscribeNotifications() {
 
         if (endpoint && p256dh_base64url && auth_base64url) {
             const { authorizationState } = ApplicationStore;
-            if (authorizationState && authorizationState['@type'] === 'authorizationStateReady') {
-                await TdLibController.send({
+            if (isAuthorizationReady(authorizationState)) {
+                const deviceToken = {
+                    '@type': 'deviceTokenWebPush',
+                    endpoint,
+                    p256dh_base64url,
+                    auth_base64url
+                };
+                console.log('[SW] registerDevice', deviceToken);
+                const result = await TdLibController.send({
                     '@type': 'registerDevice',
-                    device_token: {
-                        '@type': 'deviceTokenWebPush',
-                        endpoint: endpoint,
-                        p256dh_base64url: p256dh_base64url,
-                        auth_base64url: auth_base64url
-                    },
+                    device_token: deviceToken,
                     other_user_ids: []
                 });
+                console.log('[SW] registerDevice result', result);
             }
         }
     } catch (error) {
         console.error('[SW] Error during service worker push subscription: ', error);
+        NotificationStore.enableSound = true;
     }
 }
 

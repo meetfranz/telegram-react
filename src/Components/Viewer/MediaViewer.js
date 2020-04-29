@@ -9,29 +9,26 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import { withTranslation } from 'react-i18next';
+import KeyboardManager, { KeyboardHandler } from '../Additional/KeyboardManager';
 import Button from '@material-ui/core/Button';
 import Checkbox from '@material-ui/core/Checkbox';
-import CloseIcon from '@material-ui/icons/Close';
-import DeleteIcon from '@material-ui/icons/Delete';
+import CloseIcon from '../../Assets/Icons/Close';
+import DeleteIcon from '../../Assets/Icons/Delete';
 import Dialog from '@material-ui/core/Dialog';
 import DialogActions from '@material-ui/core/DialogActions';
 import DialogContent from '@material-ui/core/DialogContent';
 import DialogContentText from '@material-ui/core/DialogContentText';
 import DialogTitle from '@material-ui/core/DialogTitle';
 import FormControlLabel from '@material-ui/core/FormControlLabel';
-import NavigateNextIcon from '@material-ui/icons/NavigateNext';
-import NavigateBeforeIcon from '@material-ui/icons/NavigateBefore';
-import ReplyIcon from '@material-ui/icons/Reply';
-import InvertColorsIcon from '@material-ui/icons/InvertColors';
-import SlowMotionVideoIcon from '@material-ui/icons/SlowMotionVideo';
-import MediaViewerControl from '../Tile/MediaViewerControl';
+import NavigateBeforeIcon from '../../Assets/Icons/Left';
+import ReplyIcon from '../../Assets/Icons/Share';
+import MediaInfo from '../Tile/MediaInfo';
 import MediaViewerContent from './MediaViewerContent';
 import MediaViewerButton from './MediaViewerButton';
 import MediaViewerFooterText from './MediaViewerFooterText';
 import MediaViewerFooterButton from './MediaViewerFooterButton';
 import MediaViewerDownloadButton from './MediaViewerDownloadButton';
-import { setMediaViewerContent } from '../../Actions/Client';
-import { getSize } from '../../Utils/Common';
+import { forwardMessages, setMediaViewerContent } from '../../Actions/Client';
 import {
     cancelPreloadMediaViewerContent,
     getMediaFile,
@@ -52,20 +49,11 @@ import MessageStore from '../../Stores/MessageStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './MediaViewer.css';
 
-const forwardIconStyle = {
-    padding: 20,
-    transform: 'scaleX(-1)'
-};
-
-const iconStyle = {
-    padding: 20
-};
-
 class MediaViewer extends React.Component {
     constructor(props) {
         super(props);
 
-        this.contentRef = React.createRef();
+        this.keyboardHandler = new KeyboardHandler(this.onKeyDown);
         this.history = [];
 
         const { chatId, messageId } = this.props;
@@ -142,17 +130,17 @@ class MediaViewer extends React.Component {
     componentDidMount() {
         this.loadHistory();
 
-        document.addEventListener('keydown', this.onKeyDown, false);
+        KeyboardManager.add(this.keyboardHandler);
         MessageStore.on('updateDeleteMessages', this.onUpdateDeleteMessages);
         MessageStore.on('updateNewMessage', this.onUpdateNewMessage);
         MessageStore.on('updateMessageContent', this.onUpdateMessageContent);
     }
 
     componentWillUnmount() {
-        document.removeEventListener('keydown', this.onKeyDown, false);
-        MessageStore.removeListener('updateDeleteMessages', this.onUpdateDeleteMessages);
-        MessageStore.removeListener('updateNewMessage', this.onUpdateNewMessage);
-        MessageStore.removeListener('updateMessageContent', this.onUpdateMessageContent);
+        KeyboardManager.remove(this.keyboardHandler);
+        MessageStore.off('updateDeleteMessages', this.onUpdateDeleteMessages);
+        MessageStore.off('updateNewMessage', this.onUpdateNewMessage);
+        MessageStore.off('updateMessageContent', this.onUpdateMessageContent);
     }
 
     onKeyDown = event => {
@@ -484,13 +472,7 @@ class MediaViewer extends React.Component {
         const { chatId } = this.props;
         const { currentMessageId } = this.state;
 
-        TdLibController.clientUpdate({
-            '@type': 'clientUpdateForward',
-            info: {
-                chatId: chatId,
-                messageIds: [currentMessageId]
-            }
-        });
+        forwardMessages(chatId, [currentMessageId]);
     };
 
     handleDelete = () => {
@@ -728,20 +710,6 @@ class MediaViewer extends React.Component {
         });
     };
 
-    handleChangeSpeed = () => {
-        if (!this.contentRef) return;
-
-        const { current } = this.contentRef;
-        if (!current) return;
-
-        const { speed } = this.state;
-        const nextSpeed = speed < 1 ? 1 : 0.1;
-
-        this.setState({ speed: nextSpeed });
-
-        current.changeSpeed(nextSpeed);
-    };
-
     canBeForwarded = (chatId, messageId) => {
         const message = MessageStore.get(chatId, messageId);
         if (!message) return false;
@@ -799,7 +767,7 @@ class MediaViewer extends React.Component {
                 open={deleteConfirmationOpened}
                 onClose={this.handleDialogClose}
                 aria-labelledby='form-dialog-title'>
-                <DialogTitle id='form-dialog-title'>{t('AppName')}</DialogTitle>
+                <DialogTitle id='form-dialog-title'>{t('Confirm')}</DialogTitle>
                 <DialogContent>
                     <DialogContentText>{deleteConfirmationContent}</DialogContentText>
                     {can_be_deleted_for_all_users && (
@@ -823,7 +791,7 @@ class MediaViewer extends React.Component {
             </Dialog>
         ) : null;
 
-        const [width, height, file] = getMediaFile(chatId, currentMessageId, PHOTO_BIG_SIZE);
+        const [width, height, file, mimeType] = getMediaFile(chatId, currentMessageId, PHOTO_BIG_SIZE);
 
         const fileId = file ? file.id : 0;
         let title = t('AttachPhoto');
@@ -837,18 +805,35 @@ class MediaViewer extends React.Component {
 
         return (
             <div className={classNames('media-viewer', background)}>
-                {deleteConfirmation}
+                <div className='media-viewer-footer'>
+                    <MediaInfo chatId={chatId} messageId={currentMessageId} />
+                    <MediaViewerFooterText
+                        title={title}
+                        subtitle={maxCount && index >= 0 ? `${maxCount - index} of ${maxCount}` : null}
+                    />
+                    <MediaViewerDownloadButton title={t('Save')} fileId={fileId} onClick={this.handleSave} />
+                    <MediaViewerFooterButton
+                        title={t('Forward')}
+                        disabled={!canBeForwarded}
+                        onClick={this.handleForward}>
+                        <ReplyIcon />
+                    </MediaViewerFooterButton>
+                    <MediaViewerFooterButton title={t('Delete')} disabled={!canBeDeleted} onClick={this.handleDelete}>
+                        <DeleteIcon />
+                    </MediaViewerFooterButton>
+                    <MediaViewerFooterButton title={t('Close')} onClick={this.handleClose}>
+                        <CloseIcon />
+                    </MediaViewerFooterButton>
+                </div>
                 <div className='media-viewer-wrapper' onClick={this.handlePrevious}>
                     <div className='media-viewer-left-column'>
-                        <div className='media-viewer-button-placeholder' />
                         <MediaViewerButton disabled={!hasPreviousMedia} grow onClick={this.handlePrevious}>
-                            <NavigateBeforeIcon fontSize='large' />
+                            <NavigateBeforeIcon />
                         </MediaViewerButton>
                     </div>
 
                     <div className='media-viewer-content-column'>
                         <MediaViewerContent
-                            ref={this.contentRef}
                             chatId={chatId}
                             messageId={currentMessageId}
                             size={PHOTO_BIG_SIZE}
@@ -857,46 +842,12 @@ class MediaViewer extends React.Component {
                     </div>
 
                     <div className='media-viewer-right-column'>
-                        <MediaViewerButton onClick={this.handleClose}>
-                            <CloseIcon fontSize='large' />
-                        </MediaViewerButton>
                         <MediaViewerButton disabled={!hasNextMedia} grow onClick={this.handleNext}>
-                            <NavigateNextIcon fontSize='large' />
+                            <NavigateBeforeIcon style={{ transform: 'rotate(180deg)' }} />
                         </MediaViewerButton>
                     </div>
                 </div>
-                <div className='media-viewer-footer'>
-                    <MediaViewerControl chatId={chatId} messageId={currentMessageId} />
-                    <MediaViewerFooterText
-                        title={title}
-                        subtitle={maxCount && index >= 0 ? `${maxCount - index} of ${maxCount}` : null}
-                    />
-                    {isLottieMessage(chatId, currentMessageId) && (
-                        <>
-                            <MediaViewerFooterButton
-                                title={t('ChangeSpeed')}
-                                checked={speed < 1}
-                                onClick={this.handleChangeSpeed}>
-                                <SlowMotionVideoIcon style={iconStyle} />
-                            </MediaViewerFooterButton>
-                            <MediaViewerFooterButton
-                                title={t('InvertBackgroundColor')}
-                                onClick={this.handleInvertColors}>
-                                <InvertColorsIcon style={iconStyle} />
-                            </MediaViewerFooterButton>
-                        </>
-                    )}
-                    <MediaViewerDownloadButton title={t('Save')} fileId={fileId} onClick={this.handleSave} />
-                    <MediaViewerFooterButton
-                        title={t('Forward')}
-                        disabled={!canBeForwarded}
-                        onClick={this.handleForward}>
-                        <ReplyIcon style={forwardIconStyle} />
-                    </MediaViewerFooterButton>
-                    <MediaViewerFooterButton title={t('Delete')} disabled={!canBeDeleted} onClick={this.handleDelete}>
-                        <DeleteIcon style={iconStyle} />
-                    </MediaViewerFooterButton>
-                </div>
+                {deleteConfirmation}
             </div>
         );
     }

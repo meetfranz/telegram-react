@@ -58,8 +58,8 @@ import { setInstantViewViewerContent } from '../Actions/Client';
 import FileStore from '../Stores/FileStore';
 import TdLibController from '../Controllers/TdLibController';
 
-export function openInstantViewMedia(media, block, instantView, fileCancel) {
-    console.log('[IV] openIVMedia', media);
+export function openInstantViewMedia(media, caption, block, instantView, fileCancel) {
+    // console.log('[IV] openIVMedia', media);
 
     if (!media) return;
 
@@ -84,6 +84,7 @@ export function openInstantViewMedia(media, block, instantView, fileCancel) {
 
             setInstantViewViewerContent({
                 media,
+                caption,
                 block,
                 instantView
             });
@@ -114,6 +115,7 @@ export function openInstantViewMedia(media, block, instantView, fileCancel) {
         case 'photo': {
             setInstantViewViewerContent({
                 media,
+                caption,
                 block,
                 instantView
             });
@@ -136,6 +138,7 @@ export function openInstantViewMedia(media, block, instantView, fileCancel) {
 
             setInstantViewViewerContent({
                 media,
+                caption,
                 block,
                 instantView
             });
@@ -156,10 +159,11 @@ export function getPageBlock(block, iv, key = undefined) {
         case 'pageBlockAnimation': {
             element = (
                 <Animation
+                    block={block}
                     caption={block.caption}
                     animation={block.animation}
                     needAutoplay={block.need_autoplay}
-                    openMedia={() => openInstantViewMedia(block.animation, block, iv, true)}
+                    openMedia={() => openInstantViewMedia(block.animation, block.caption, block, iv, true)}
                 />
             );
             break;
@@ -169,7 +173,7 @@ export function getPageBlock(block, iv, key = undefined) {
                 <Audio
                     caption={block.caption}
                     audio={block.audio}
-                    openMedia={() => openInstantViewMedia(block.audio, block, iv, true)}
+                    openMedia={() => openInstantViewMedia(block.audio, block.caption, block, iv, true)}
                 />
             );
             break;
@@ -272,7 +276,7 @@ export function getPageBlock(block, iv, key = undefined) {
                     caption={block.caption}
                     photo={block.photo}
                     url={block.url}
-                    openMedia={() => openInstantViewMedia(block.photo, block, iv, true)}
+                    openMedia={() => openInstantViewMedia(block.photo, block.caption, block, iv, true)}
                 />
             );
             break;
@@ -349,7 +353,7 @@ export function getPageBlock(block, iv, key = undefined) {
                     video={block.video}
                     needAutoplay={block.need_autoplay}
                     isLooped={block.is_looped}
-                    openMedia={() => openInstantViewMedia(block.video, block, iv, true)}
+                    openMedia={() => openInstantViewMedia(block.video, block.caption, block, iv, true)}
                 />
             );
             break;
@@ -569,4 +573,201 @@ export function getVerticalAlignment(valign) {
     }
 
     return null;
+}
+
+export function getInnerBlocks(block) {
+    if (!block) return [];
+
+    switch (block['@type']) {
+        case 'pageBlockAnchor': {
+            return [];
+        }
+        case 'pageBlockAnimation': {
+            return [block.caption];
+        }
+        case 'pageBlockAudio': {
+            return [block.caption];
+        }
+        case 'pageBlockAuthorDate': {
+            return [];
+        }
+        case 'pageBlockBlockQuote': {
+            return [];
+        }
+        case 'pageBlockChatLink': {
+            return [];
+        }
+        case 'pageBlockCollage': {
+            const innerBlocks = block.page_blocks.map(x => [x, ...getInnerBlocks(x)]);
+
+            return [].concat.apply([], innerBlocks);
+        }
+        case 'pageBlockCover': {
+            return [block.cover];
+        }
+        case 'pageBlockDetails': {
+            const innerBlocks = block.page_blocks.map(x => [x, ...getInnerBlocks(x)]);
+
+            return [].concat.apply([], innerBlocks);
+        }
+        case 'pageBlockDivider': {
+            return [];
+        }
+        case 'pageBlockEmbedded': {
+            return [block.caption];
+        }
+        case 'pageBlockEmbeddedPost': {
+            const innerBlocks = block.page_blocks.map(x => [x, ...getInnerBlocks(x)]);
+
+            return [].concat.apply([block.caption], innerBlocks);
+        }
+        case 'pageBlockFooter': {
+            return [];
+        }
+        case 'pageBlockHeader': {
+            return [];
+        }
+        case 'pageBlockKicker': {
+            return [];
+        }
+        case 'pageBlockList': {
+            const innerBlocks = block.items.map(x => [x, ...getInnerBlocks(x)]);
+
+            return [].concat.apply([], innerBlocks);
+        }
+        case 'pageBlockListItem': {
+            const innerBlocks = block.page_blocks.map(x => [x, ...getInnerBlocks(x)]);
+
+            return [].concat.apply([], innerBlocks);
+        }
+        case 'pageBlockMap': {
+            return [block.caption];
+        }
+        case 'pageBlockParagraph': {
+            return [];
+        }
+        case 'pageBlockPhoto': {
+            return [block.caption];
+        }
+        case 'pageBlockPreformatted': {
+            return [];
+        }
+        case 'pageBlockPullQuote': {
+            return [];
+        }
+        case 'pageBlockRelatedArticle': {
+            return [];
+        }
+        case 'pageBlockRelatedArticles': {
+            return [...block.articles];
+        }
+        case 'pageBlockSlideshow': {
+            const innerBlocks = block.page_blocks.map(x => [x, ...getInnerBlocks(x)]);
+
+            return [].concat.apply([block.caption], innerBlocks);
+        }
+        case 'pageBlockSubheader': {
+            return [];
+        }
+        case 'pageBlockSubtitle': {
+            return [];
+        }
+        case 'pageBlockTable': {
+            return [...block.cells];
+        }
+        case 'pageBlockTableCell': {
+            return [];
+        }
+        case 'pageBlockTitle': {
+            return [];
+        }
+        case 'pageBlockVideo': {
+            return [block.caption];
+        }
+    }
+
+    return [];
+}
+
+export function getBlockMedia(block) {
+    if (!block) return null;
+
+    switch (block['@type']) {
+        case 'pageBlockAnimation': {
+            return block.animation;
+        }
+        case 'pageBlockPhoto': {
+            return block.photo;
+        }
+        case 'pageBlockVideo': {
+            return block.video;
+        }
+    }
+
+    return null;
+}
+
+export function getBlockCaption(block) {
+    if (!block) return null;
+
+    switch (block['@type']) {
+        case 'pageBlockAnimation': {
+            return block.caption;
+        }
+        case 'pageBlockPhoto': {
+            return block.caption;
+        }
+        case 'pageBlockVideo': {
+            return block.caption;
+        }
+    }
+
+    return null;
+}
+
+export function getBlockUrl(block) {
+    if (!block) return null;
+
+    switch (block['@type']) {
+        case 'pageBlockPhoto': {
+            return block.url;
+        }
+    }
+
+    return null;
+}
+
+export function isValidMediaBlock(block) {
+    if (!block) return false;
+
+    switch (block['@type']) {
+        case 'pageBlockAnimation': {
+            return true;
+        }
+        case 'pageBlockPhoto': {
+            return true;
+        }
+        case 'pageBlockVideo': {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+export function getValidMediaBlocks(iv) {
+    if (!iv) return [];
+
+    const { page_blocks } = iv;
+
+    const blocks = [];
+    page_blocks.forEach(x => {
+        blocks.push(x);
+        const innerBlocks = getInnerBlocks(x);
+        innerBlocks.forEach(i => {
+            blocks.push(i);
+        });
+    });
+
+    return blocks.filter(isValidMediaBlock);
 }

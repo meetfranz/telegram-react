@@ -8,7 +8,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import withStyles from '@material-ui/core/styles/withStyles';
 import ChatDetails from './ChatDetails';
 import GroupsInCommon from './GroupsInCommon';
 import SharedAudios from './SharedMedia/SharedAudios';
@@ -18,31 +17,23 @@ import SharedMedia from './SharedMedia';
 import SharedPhotos from './SharedMedia/SharedPhotos';
 import SharedVideos from './SharedMedia/SharedVideos';
 import SharedVoiceNotes from './SharedMedia/SharedVoiceNotes';
-import { borderStyle } from '../Theme';
 import { getChatCounters } from '../../Actions/Chat';
-import { getSupergroupId, isSupergroup } from '../../Utils/Chat';
-import ApplicationStore from '../../Stores/ApplicationStore';
+import { getPhotoFromChat, getSupergroupId, isSupergroup } from '../../Utils/Chat';
+import { loadProfileMediaViewerContent } from '../../Utils/File';
+import AppStore from '../../Stores/ApplicationStore';
 import ChatStore from '../../Stores/ChatStore';
 import SupergroupStore from '../../Stores/SupergroupStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './ChatInfo.css';
 
-// const styles = (theme) => ({
-//     borderColor: {
-//         borderColor: theme.palette.divider
-//     }
-// });
-
 class ChatInfo extends React.Component {
     constructor(props) {
         super(props);
 
-        console.log('ChatDetails.ChatInfo.ctor');
-
         this.detailsRef = React.createRef();
 
         const { popup } = props;
-        const { chatId, dialogChatId } = ApplicationStore;
+        const { chatId, dialogChatId } = AppStore;
 
         this.state = {
             chatId: popup ? dialogChatId : chatId,
@@ -62,14 +53,15 @@ class ChatInfo extends React.Component {
     }
 
     componentDidMount() {
-        console.log('ChatDetails.ChatInfo.componentDidMount');
         this.loadContent(this.state.chatId);
 
-        ApplicationStore.on('clientUpdateChatId', this.onClientUpdateChatId);
+        AppStore.on('clientUpdateChatId', this.onClientUpdateChatId);
+        AppStore.on('clientUpdatePageWidth', this.onClientUpdatePageWidth);
     }
 
     componentWillUnmount() {
-        ApplicationStore.removeListener('clientUpdateChatId', this.onClientUpdateChatId);
+        AppStore.off('clientUpdateChatId', this.onClientUpdateChatId);
+        AppStore.off('clientUpdatePageWidth', this.onClientUpdatePageWidth);
     }
 
     componentDidUpdate(prevProps, prevState, snapshot) {
@@ -78,6 +70,16 @@ class ChatInfo extends React.Component {
             this.loadContent(chatId);
         }
     }
+
+    onClientUpdatePageWidth = update => {
+        const { isSmallWidth } = update;
+        if (!isSmallWidth) return;
+
+        const { popup } = this.props;
+        if (popup) return;
+
+        this.handleCloseChatDetails();
+    };
 
     onClientUpdateChatId = update => {
         const { popup } = this.props;
@@ -113,6 +115,10 @@ class ChatInfo extends React.Component {
     loadContent = chatId => {
         this.loadChatCounters(chatId);
         this.loadMigratedCounters(chatId);
+
+        const photo = getPhotoFromChat(chatId);
+        if (!photo) return;
+        loadProfileMediaViewerContent(chatId, [photo]);
     };
 
     loadChatCounters = async chatId => {
@@ -125,7 +131,6 @@ class ChatInfo extends React.Component {
     };
 
     loadMigratedCounters = async chatId => {
-        console.log('ChatInfo.loadMigratedCounters');
         if (!isSupergroup(chatId)) return;
 
         const fullInfo = SupergroupStore.getFullInfo(getSupergroupId(chatId));
@@ -142,7 +147,6 @@ class ChatInfo extends React.Component {
 
         if (!chat) return;
 
-        console.log('ChatInfo.loadMigratedCounters chat', chat);
         const counters = await getChatCounters(chat.id);
         ChatStore.setCounters(chat.id, counters);
 
@@ -179,7 +183,7 @@ class ChatInfo extends React.Component {
                 chatId: 0
             });
         } else {
-            ApplicationStore.changeChatDetailsVisibility(false);
+            AppStore.changeChatDetailsVisibility(false);
         }
     };
 
@@ -232,8 +236,7 @@ class ChatInfo extends React.Component {
     };
 
     render() {
-        console.log('ChatDetails.ChatInfo.render', this.state);
-        const { classes, className, popup } = this.props;
+        const { className, popup } = this.props;
         const {
             chatId,
             counters,
@@ -369,7 +372,7 @@ class ChatInfo extends React.Component {
         return popup ? (
             <>{content}</>
         ) : (
-            <div className={classNames(classes.borderColor, { 'right-column': !popup }, className)}>{content}</div>
+            <div className={classNames('chat-info', { 'right-column': !popup }, className)}>{content}</div>
         );
     }
 }
@@ -386,4 +389,4 @@ ChatInfo.defaultProps = {
     popup: false
 };
 
-export default withStyles(borderStyle)(ChatInfo);
+export default ChatInfo;

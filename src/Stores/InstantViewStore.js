@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { EventEmitter } from 'events';
+import EventEmitter from './EventEmitter';
 import TdLibController from '../Controllers/TdLibController';
 
 class InstantViewStore extends EventEmitter {
@@ -15,17 +15,38 @@ class InstantViewStore extends EventEmitter {
         this.reset();
 
         this.addTdLibListener();
-        this.setMaxListeners(Infinity);
     }
 
     reset = () => {
         this.items = [];
     };
 
-    onUpdate = update => {};
+    onUpdate = update => {
+        switch (update['@type']) {
+            case 'updateAuthorizationState': {
+                const { authorization_state } = update;
+                if (!authorization_state) break;
+
+                switch (authorization_state['@type']) {
+                    case 'authorizationStateClosed': {
+                        this.reset();
+                        break;
+                    }
+                }
+
+                break;
+            }
+            default:
+                break;
+        }
+    };
 
     onClientUpdate = update => {
         switch (update['@type']) {
+            case 'clientUpdateBlocksInView': {
+                this.emit('clientUpdateBlocksInView', update);
+                break;
+            }
             case 'clientUpdateInstantViewContent': {
                 const { content } = update;
 
@@ -44,6 +65,10 @@ class InstantViewStore extends EventEmitter {
                 break;
             }
             case 'clientUpdateInstantViewViewerContent': {
+                const { content } = update;
+
+                this.viewerContent = content;
+
                 this.emit('clientUpdateInstantViewViewerContent', update);
                 break;
             }
@@ -68,13 +93,13 @@ class InstantViewStore extends EventEmitter {
     };
 
     addTdLibListener = () => {
-        TdLibController.addListener('update', this.onUpdate);
-        TdLibController.addListener('clientUpdate', this.onClientUpdate);
+        TdLibController.on('update', this.onUpdate);
+        TdLibController.on('clientUpdate', this.onClientUpdate);
     };
 
     removeTdLibListener = () => {
-        TdLibController.removeListener('update', this.onUpdate);
-        TdLibController.removeListener('clientUpdate', this.onClientUpdate);
+        TdLibController.off('update', this.onUpdate);
+        TdLibController.off('clientUpdate', this.onClientUpdate);
     };
 
     hasPrev() {

@@ -8,20 +8,29 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import { getUserLetters } from '../../Utils/User';
+import { withTranslation } from 'react-i18next';
+import { getUserLetters, isDeletedUser } from '../../Utils/User';
 import { getSrc, loadChatContent } from '../../Utils/File';
 import UserStore from '../../Stores/UserStore';
 import ChatStore from '../../Stores/ChatStore';
 import FileStore from '../../Stores/FileStore';
 import './UserTile.css';
+import DeletedAccountIcon from '../../Assets/Icons/DeletedAccount';
 
 class UserTile extends Component {
     constructor(props) {
         super(props);
 
-        this.state = {
-            loaded: false
-        };
+        if (process.env.NODE_ENV !== 'production') {
+            this.state = {
+                user: UserStore.get(this.props.userId),
+                loaded: false
+            };
+        } else {
+            this.state = {
+                loaded: false
+            };
+        }
     }
 
     shouldComponentUpdate(nextProps, nextState) {
@@ -44,10 +53,10 @@ class UserTile extends Component {
     }
 
     componentWillUnmount() {
-        FileStore.removeListener('clientUpdateUserBlob', this.onClientUpdateUserBlob);
-        FileStore.removeListener('clientUpdateChatBlob', this.onClientUpdateChatBlob);
-        ChatStore.removeListener('updateChatPhoto', this.onUpdateChatPhoto);
-        ChatStore.removeListener('updateChatTitle', this.onUpdateChatTitle);
+        FileStore.off('clientUpdateUserBlob', this.onClientUpdateUserBlob);
+        FileStore.off('clientUpdateChatBlob', this.onClientUpdateChatBlob);
+        ChatStore.off('updateChatPhoto', this.onUpdateChatPhoto);
+        ChatStore.off('updateChatTitle', this.onUpdateChatTitle);
     }
 
     onClientUpdateUserBlob = update => {
@@ -153,27 +162,58 @@ class UserTile extends Component {
     };
 
     render() {
-        const { userId, fistName, lastName, onSelect } = this.props;
+        const { className, userId, fistName, lastName, onSelect, small, dialog, poll, t } = this.props;
         const { loaded } = this.state;
 
         const user = UserStore.get(userId);
         if (!user && !(fistName || lastName)) return null;
 
-        const letters = getUserLetters(userId, fistName, lastName);
+        if (isDeletedUser(userId)) {
+            return (
+                <div
+                    className={classNames(
+                        className,
+                        'user-tile',
+                        'tile_color_0',
+                        { pointer: onSelect },
+                        { 'tile-dialog': dialog },
+                        { 'tile-small': small },
+                        { 'tile-poll': poll }
+                    )}
+                    onClick={this.handleSelect}>
+                    <div className='tile-photo'>
+                        <div className='tile-saved-messages'>
+                            <DeletedAccountIcon fontSize='default' />
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const letters = getUserLetters(userId, fistName, lastName, t);
         const src = getSrc(user && user.profile_photo ? user.profile_photo.small : null);
         const tileLoaded = src && loaded;
 
         const tileColor = `tile_color_${(Math.abs(userId) % 8) + 1}`;
-        const className = classNames('tile-photo', { [tileColor]: !tileLoaded }, { pointer: onSelect });
 
         return (
-            <div className='user-tile' onClick={this.handleSelect}>
+            <div
+                className={classNames(
+                    className,
+                    'user-tile',
+                    { [tileColor]: !tileLoaded },
+                    { pointer: onSelect },
+                    { 'tile-dialog': dialog },
+                    { 'tile-small': small },
+                    { 'tile-poll': poll }
+                )}
+                onClick={this.handleSelect}>
                 {!tileLoaded && (
-                    <div className={className}>
+                    <div className='tile-photo'>
                         <span className='tile-text'>{letters}</span>
                     </div>
                 )}
-                {src && <img className={className} src={src} onLoad={this.handleLoad} draggable={false} alt='' />}
+                {src && <img className='tile-photo' src={src} onLoad={this.handleLoad} draggable={false} alt='' />}
             </div>
         );
     }
@@ -183,7 +223,8 @@ UserTile.propTypes = {
     userId: PropTypes.number.isRequired,
     firstName: PropTypes.string,
     lastName: PropTypes.string,
-    onSelect: PropTypes.func
+    onSelect: PropTypes.func,
+    small: PropTypes.bool
 };
 
-export default UserTile;
+export default withTranslation()(UserTile);
